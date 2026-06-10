@@ -807,7 +807,6 @@ kbd{
     if (!view.length) return;
     current=Math.min(Math.max(current+delta,0),view.length-1);
     selected=new Set(); renderAll();
-    window.scrollTo({top:0,behavior:'smooth'});
   }
   function retry(q) { delete progress[q.id]; saveProgress(); selected=new Set(); renderAll(); }
 
@@ -833,7 +832,7 @@ kbd{
       const p=progress[q.id];
       if (i===current) b.classList.add('current');
       if (p) b.classList.add(p.correct?'done':'wrong');
-      b.addEventListener('click',()=>{ current=i; selected=new Set(); renderAll(); window.scrollTo({top:0,behavior:'smooth'}); });
+      b.addEventListener('click',()=>{ current=i; selected=new Set(); renderAll(); });
       frag.appendChild(b);
     });
     nav.appendChild(frag);
