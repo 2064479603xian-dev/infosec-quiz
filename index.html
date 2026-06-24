@@ -570,6 +570,28 @@ kbd{
 .btn-exam-start:hover{background:var(--accent-deep);transform:translateY(-3px);box-shadow:0 8px 24px rgba(6,217,196,.45);}
 .btn-exam-start:active{transform:scale(.96);}
 
+/* 错题练习入口 */
+.wrong-entry{
+  margin-bottom:20px;
+  padding:20px 24px;
+  border-radius:18px;
+  background:linear-gradient(135deg,var(--red-bg),var(--bg-alt));
+  border:1px solid var(--red-border);
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;
+  box-shadow:var(--shadow);
+}
+.wrong-entry-info h3{margin:0 0 4px;font-size:16px;font-weight:700;color:var(--red);}
+.wrong-entry-info p{margin:0;font-size:13px;color:var(--text-2);}
+.btn-wrong-start{
+  background:var(--red);color:#fff;font-weight:700;font-size:14px;
+  padding:12px 24px;border-radius:12px;border:none;cursor:pointer;
+  box-shadow:0 4px 14px rgba(255,90,126,.35);
+  transition:all .25s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;
+}
+.btn-wrong-start:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(255,90,126,.45);}
+.btn-wrong-start:active{transform:scale(.96);}
+.btn-wrong-start:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none;}
+
 /* 考试全屏遮罩 */
 .exam-overlay{
   position:fixed;inset:0;z-index:1000;
@@ -815,6 +837,14 @@ kbd{
     <button class="btn-exam-start" id="btnStartExam" type="button">开始模拟考试</button>
   </div>
 
+  <div class="wrong-entry">
+    <div class="wrong-entry-info">
+      <h3>📕 错题练习</h3>
+      <p id="wrongEntryDesc">集中复习当前累计的错题（包含日常练习与模拟考试中的错题）</p>
+    </div>
+    <button class="btn-wrong-start" id="btnWrongPractice" type="button">进入错题练习</button>
+  </div>
+
   <div class="three-col">
     <!-- 左侧筛选栏 -->
     <aside class="sidebar">
@@ -1032,7 +1062,31 @@ kbd{
     });
   });
 
+  // 错题练习入口：切换到"错题"筛选并跳转到答题区
+  function enterWrongPractice() {
+    settings.status = 'wrong';
+    settings.type = 'all';
+    document.querySelectorAll('[data-status]').forEach(x => x.classList.toggle('active', x.dataset.status==='wrong'));
+    document.querySelectorAll('[data-type]').forEach(x => x.classList.toggle('active', x.dataset.type==='all'));
+    rebuild(true);
+    const card2 = el('questionCard');
+    if (card2) card2.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+  window.enterWrongPractice = enterWrongPractice;
+  el('btnWrongPractice').addEventListener('click', enterWrongPractice);
+
+  function updateWrongEntryDesc() {
+    const wrongCount = Object.values(progress).filter(p => p && p.correct === false).length;
+    const desc = el('wrongEntryDesc');
+    const btn = el('btnWrongPractice');
+    if (desc) desc.textContent = wrongCount
+      ? `当前累计 ${wrongCount} 道错题（含日常练习与模拟考试），点击集中复习`
+      : '暂无错题，继续加油，错题会自动汇总到这里';
+    if (btn) btn.disabled = wrongCount === 0;
+  }
+
   rebuild(false);
+  updateWrongEntryDesc();
 
   function loadJSON(key, fb) { try { return JSON.parse(localStorage.getItem(key)) ?? fb; } catch { return fb; } }
   function saveProgress() { localStorage.setItem(STORE_KEY, JSON.stringify(progress)); }
@@ -1250,6 +1304,7 @@ kbd{
     el('statWrong').textContent=String(wrong);
     el('statRate').textContent=answered.length?Math.round(correct/answered.length*100)+'%':'—';
     el('progressFill').style.width=view.length?(answered.length/view.length*100).toFixed(1)+'%':'0%';
+    updateWrongEntryDesc();
   }
 
   function renderNav() {
@@ -1342,11 +1397,15 @@ kbd{
 /* ===== 模拟考试模块 ===== */
 (() => {
   'use strict';
-  const QUESTIONS = JSON.parse(document.getElementById('questionData').textContent).questions;
+  const DATA = JSON.parse(document.getElementById('questionData').textContent);
+  const QUESTIONS = DATA.questions;
   const TOTAL = 120;
   const DURATION = 90 * 60; // 90分钟（秒）
   const PASS_SCORE = 60;
   const TYPE_LABEL = {single:'单选',multi:'多选',judge:'判断',fill:'填空'};
+  // 与练习模式共用同一份localStorage记录（必须与第一个IIFE中的STORE_KEY规则保持一致）
+  const STORE_KEY = 'quiz_security_v2_' + DATA.stats.dedupedQuestionCount;
+  function loadJSON(key, fb) { try { return JSON.parse(localStorage.getItem(key)) ?? fb; } catch { return fb; } }
 
   let examQuestions = [];   // 本次考试的120道题
   let examAnswers = {};     // {idx: selectedStr}
@@ -1597,10 +1656,13 @@ kbd{
   });
 
   // 计算成绩
+  // 计分规则：判断题每题固定0.5分；其余题型（单选/多选）平分剩余分数，使总分=100
+  const JUDGE_SCORE = 0.5;
   function calcScore() {
-    // 简单均分：每题分值 = 100/120 ≈ 0.833，总分取整
     let correct = 0;
     const byType = { single:{c:0,t:0}, multi:{c:0,t:0}, judge:{c:0,t:0} };
+    const wrongList = []; // {q, userAns} 记录本次考试的错题，用于汇入总错题库
+
     examQuestions.forEach((q, i) => {
       const t = q.type === 'single'||q.type === 'judge' ? q.type : 'multi';
       byType[t] = byType[t] || {c:0,t:0};
@@ -1611,15 +1673,36 @@ kbd{
         ? ans.split('').sort().join('') === correct_ans.split('').sort().join('')
         : ans === correct_ans;
       if (is_correct) { correct++; byType[t].c++; }
+      else { wrongList.push({ q, userAns: ans }); }
     });
-    const score = Math.round(correct / TOTAL * 100);
-    return { score, correct, byType };
+
+    // 判断题固定0.5分/题，其余分数（single+multi）平分剩余总分
+    const judgeTotal = byType.judge.t * JUDGE_SCORE;
+    const otherTotalCount = byType.single.t + byType.multi.t;
+    const otherScorePer = otherTotalCount > 0 ? (100 - judgeTotal) / otherTotalCount : 0;
+
+    let scoreFloat = byType.judge.c * JUDGE_SCORE
+      + (byType.single.c + byType.multi.c) * otherScorePer;
+    const score = Math.round(scoreFloat);
+
+    return { score, correct, byType, wrongList };
+  }
+
+  // 将本次考试中的错题写入与练习模式共用的 progress 存储（localStorage: STORE_KEY）
+  function syncWrongToProgress(wrongList) {
+    const progress = loadJSON(STORE_KEY, {});
+    const now = new Date().toISOString();
+    wrongList.forEach(({ q, userAns }) => {
+      progress[q.id] = { selected: userAns, correct: false, time: now, fromExam: true };
+    });
+    localStorage.setItem(STORE_KEY, JSON.stringify(progress));
   }
 
   function submitExam(timeup) {
     clearInterval(timerInterval);
     examFinished = true;
-    const { score, correct, byType } = calcScore();
+    const { score, correct, byType, wrongList } = calcScore();
+    syncWrongToProgress(wrongList); // 将本次考试错题汇入总错题库（与练习模式共用）
     const pass = score >= PASS_SCORE;
     const timeTaken = DURATION - secondsLeft;
     const tm = Math.floor(timeTaken/60), ts = timeTaken%60;
@@ -1672,9 +1755,11 @@ kbd{
       <div class="result-breakdown">
         <h4>各题型详情</h4>
         ${typeRows}
+        <p class="tiny muted" style="margin-top:10px;">📌 本次考试的 ${wrongList.length} 道错题已自动加入错题库，可在「错题练习」中集中复习。</p>
       </div>
       <div class="result-actions">
         <button class="btn primary" id="btnExamRetry" type="button">再来一次</button>
+        <button class="btn" id="btnExamWrongPractice" type="button">📕 错题练习</button>
         <button class="btn" id="btnExamClose" type="button">返回练习</button>
       </div>
     `;
@@ -1698,6 +1783,10 @@ kbd{
     }, 100);
 
     document.getElementById('btnExamRetry').addEventListener('click', () => startExam());
+    document.getElementById('btnExamWrongPractice').addEventListener('click', () => {
+      endExam();
+      if (window.enterWrongPractice) window.enterWrongPractice();
+    });
     document.getElementById('btnExamClose').addEventListener('click', () => endExam());
   }
 
