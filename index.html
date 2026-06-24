@@ -638,6 +638,20 @@ kbd{
 }
 .btn-exam-abandon:hover{background:var(--red-bg);}
 
+.btn-wrong-back{
+  background:var(--panel-solid);color:var(--text);font-size:13px;font-weight:700;
+  padding:8px 16px;border-radius:9px;border:1px solid var(--border);cursor:pointer;
+  transition:all .2s ease;
+}
+.btn-wrong-back:hover{background:var(--q-bg);border-color:var(--accent);color:var(--accent);}
+
+.wrong-auto-toggle{
+  display:flex;align-items:center;gap:6px;
+  font-size:12px;color:var(--text-2);font-weight:500;
+  cursor:pointer;user-select:none;
+}
+.wrong-auto-toggle input{width:16px;height:16px;cursor:pointer;accent-color:var(--accent);}
+
 /* 进度条 */
 .exam-progress-bar{
   height:3px;background:var(--border);flex-shrink:0;
@@ -970,10 +984,15 @@ kbd{
   <div class="exam-overlay" id="wrongOverlay">
     <div class="exam-header">
       <div class="exam-header-left">
+        <button class="btn-wrong-back" id="btnWrongBack" type="button">← 返回首页</button>
         <span class="exam-title">📕 错题练习</span>
         <span class="exam-progress-text" id="wrongProgressText">第 1 / 0 题</span>
       </div>
       <div class="exam-header-right">
+        <label class="wrong-auto-toggle">
+          <input type="checkbox" id="wrongAutoNext">
+          <span>答对自动下一题</span>
+        </label>
         <button class="btn-exam-abandon" id="btnWrongExit" type="button">退出错题练习</button>
       </div>
     </div>
@@ -1868,6 +1887,7 @@ kbd{
   let wStreakAfterSubmit = {}; // {idx: number} 提交后该题最新的连续答对次数，用于结果提示
   let wCurrent = 0;
   let wSelected = new Set();
+  let wAutoNext = loadJSON('quiz_wrong_autonext', false); // 答对自动下一题，偏好持久化
 
   const overlay   = document.getElementById('wrongOverlay');
   const body      = document.getElementById('wrongBody');
@@ -1896,6 +1916,9 @@ kbd{
     wStreakAfterSubmit = {};
     wCurrent = 0;
     wSelected = new Set();
+
+    const autoNextBox = document.getElementById('wrongAutoNext');
+    if (autoNextBox) autoNextBox.checked = wAutoNext;
 
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
@@ -2089,6 +2112,15 @@ kbd{
     wStreakAfterSubmit[wCurrent] = correct ? prevStreak + 1 : 0;
 
     renderQuestion();
+
+    // 答对且开启了"自动下一题"，短暂展示反馈后自动跳转
+    if (correct && wAutoNext) {
+      const isLast = wCurrent >= wQuestions.length - 1;
+      setTimeout(() => {
+        if (isLast) finishRound();
+        else move(1);
+      }, 700);
+    }
   }
 
   function move(delta) {
@@ -2159,7 +2191,14 @@ kbd{
   }
 
   document.getElementById('btnWrongExit').addEventListener('click', () => {
-    if (confirm('确认退出错题练习？本轮已订正的题目会保留更新结果。')) endWrongPractice();
+    endWrongPractice();
+  });
+  document.getElementById('btnWrongBack').addEventListener('click', () => {
+    endWrongPractice();
+  });
+  document.getElementById('wrongAutoNext').addEventListener('change', (e) => {
+    wAutoNext = e.target.checked;
+    try { localStorage.setItem('quiz_wrong_autonext', JSON.stringify(wAutoNext)); } catch {}
   });
 })();
 </script>
