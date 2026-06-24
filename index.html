@@ -840,7 +840,7 @@ kbd{
   <div class="wrong-entry">
     <div class="wrong-entry-info">
       <h3>📕 错题练习</h3>
-      <p id="wrongEntryDesc">集中复习当前累计的错题（包含日常练习与模拟考试中的错题）</p>
+      <p id="wrongEntryDesc">集中复习当前累计的错题，需连续答对3次才会移出错题库</p>
     </div>
     <button class="btn-wrong-start" id="btnWrongPractice" type="button">进入错题练习</button>
   </div>
@@ -1107,7 +1107,7 @@ kbd{
     const desc = el('wrongEntryDesc');
     const btn = el('btnWrongPractice');
     if (desc) desc.textContent = wrongCount
-      ? `当前累计 ${wrongCount} 道错题（含日常练习与模拟考试），点击集中复习`
+      ? `当前累计 ${wrongCount} 道错题，需连续答对3次才会移出错题库，点击集中复习`
       : '暂无错题，继续加油，错题会自动汇总到这里';
     if (btn) btn.disabled = wrongCount === 0;
   }
@@ -1789,7 +1789,7 @@ kbd{
       <div class="result-breakdown">
         <h4>各题型详情</h4>
         ${typeRows}
-        <p class="tiny muted" style="margin-top:10px;">📌 本次考试的 ${wrongList.length} 道错题已自动加入错题库，可在「错题练习」中集中复习。</p>
+        <p class="tiny muted" style="margin-top:10px;">📌 本次考试的 ${wrongList.length} 道错题已自动加入错题库，需在「错题练习」中连续答对3次才会移出。</p>
       </div>
       <div class="result-actions">
         <button class="btn primary" id="btnExamRetry" type="button">再来一次</button>
@@ -1859,10 +1859,13 @@ kbd{
     return a;
   }
 
+  const REQUIRED_STREAK = 3; // 需连续答对3次才算彻底掌握，移出错题库
+
   // 本轮练习状态（与主练习/模拟考试的 progress 完全隔离，只在结束时统一同步回 progress）
   let wQuestions = [];     // 本轮题目（来自当前所有错题，乱序）
   let wAnswers = {};        // {idx: selectedStr} 本轮已作答记录（仅本轮内存，不做"上次错"提示）
-  let wResolved = {};       // {idx: true} 本轮中已经"答对并移出错题库"的题目
+  let wResolved = {};       // {idx: true} 本轮中已经"连续答对3次并移出错题库"的题目
+  let wStreakAfterSubmit = {}; // {idx: number} 提交后该题最新的连续答对次数，用于结果提示
   let wCurrent = 0;
   let wSelected = new Set();
 
@@ -1890,6 +1893,7 @@ kbd{
     wQuestions = shuffle(pool);
     wAnswers = {};
     wResolved = {};
+    wStreakAfterSubmit = {};
     wCurrent = 0;
     wSelected = new Set();
 
@@ -1987,10 +1991,18 @@ kbd{
 
   function renderResult(q, saved) {
     const correct = isCorrect(q, saved);
+    const streak = wStreakAfterSubmit[wCurrent] || 0;
+    const mastered = correct && wResolved[wCurrent];
     const box = document.createElement('div');
     box.className = 'result show ' + (correct ? 'ok' : 'bad');
     const header = document.createElement('div'); header.className = 'result-header';
-    header.textContent = correct ? '✓ 回答正确！已从错题库移除' : '✗ 回答错误，将继续保留在错题库';
+    if (mastered) {
+      header.textContent = `✓ 回答正确！已连续答对 ${REQUIRED_STREAK} 次，移出错题库`;
+    } else if (correct) {
+      header.textContent = `✓ 回答正确（连续答对 ${streak}/${REQUIRED_STREAK} 次，再连续答对 ${REQUIRED_STREAK-streak} 次即可移出错题库）`;
+    } else {
+      header.textContent = '✗ 回答错误，连续答对次数已清零，需重新连续答对 ' + REQUIRED_STREAK + ' 次';
+    }
     const detail = document.createElement('div'); detail.className = 'result-detail';
     const userAns = q.type==='fill' ? saved : optionText(q, saved);
     const rightAns = q.type==='fill' ? q.answer : optionText(q, q.answer);
@@ -2013,7 +2025,17 @@ kbd{
       actions.append(btn2('清空多选', () => { wSelected.clear(); renderQuestion(); }, 'btn'));
       actions.append(btn2('提交本题', () => submit(q, Array.from(wSelected).sort().join('')), 'btn'));
     }
+    if (saved && !wResolved[wCurrent]) {
+      actions.append(btn2('重做本题（继续累积连续答对）', () => retry(), 'btn danger'));
+    }
     card.appendChild(actions);
+  }
+
+  function retry() {
+    delete wAnswers[wCurrent];
+    delete wStreakAfterSubmit[wCurrent];
+    wSelected = new Set();
+    renderQuestion();
   }
 
   function btn2(text, fn, cls) {
@@ -2039,15 +2061,32 @@ kbd{
     wAnswers[wCurrent] = value;
     const correct = isCorrect(q, value);
 
-    // 同步回总错题库：答对则移出（删除该题的错题记录），答错则保持/更新为错
+    // 同步回总错题库，并维护"连续答对次数"计数器
     const progress = loadJSON(STORE_KEY, {});
+    const prevStreak = (progress[q.id] && progress[q.id].streak) || 0;
+
     if (correct) {
-      delete progress[q.id];
-      wResolved[wCurrent] = true;
+      const newStreak = prevStreak + 1;
+      if (newStreak >= REQUIRED_STREAK) {
+        // 连续答对达标，彻底移出错题库
+        delete progress[q.id];
+        wResolved[wCurrent] = true;
+      } else {
+        // 答对但未达标，保留在错题库中，记录递增的连续答对次数
+        progress[q.id] = {
+          selected: value, correct: false, streak: newStreak,
+          time: new Date().toISOString(), fromWrongPractice: true
+        };
+      }
     } else {
-      progress[q.id] = { selected: value, correct: false, time: new Date().toISOString(), fromWrongPractice: true };
+      // 答错，连续答对计数清零
+      progress[q.id] = {
+        selected: value, correct: false, streak: 0,
+        time: new Date().toISOString(), fromWrongPractice: true
+      };
     }
     saveProgressToStore(progress);
+    wStreakAfterSubmit[wCurrent] = correct ? prevStreak + 1 : 0;
 
     renderQuestion();
   }
@@ -2077,8 +2116,8 @@ kbd{
     statsBox.innerHTML = `
       <div class="exam-stat"><b style="color:var(--accent)">${wQuestions.length}</b><span>本轮错题</span></div>
       <div class="exam-stat"><b style="color:var(--text-2)">${answered}</b><span>已作答</span></div>
-      <div class="exam-stat"><b style="color:var(--green)">${resolved}</b><span>已订正</span></div>
-      <div class="exam-stat"><b style="color:var(--red)">${answered-resolved}</b><span>仍错误</span></div>
+      <div class="exam-stat"><b style="color:var(--green)">${resolved}</b><span>已掌握(连对${REQUIRED_STREAK}次)</span></div>
+      <div class="exam-stat"><b style="color:var(--red)">${answered-resolved}</b><span>待巩固</span></div>
     `;
   }
 
@@ -2095,13 +2134,13 @@ kbd{
     const rc = document.getElementById('wrongResultCard');
     rc.innerHTML = `
       <div class="result-hero">
-        <h2 class="result-verdict ${remaining===0?'pass':'fail'}">${remaining===0 ? '🎉 本轮错题全部订正！' : '继续加油，还有错题待巩固'}</h2>
-        <p class="result-subtitle">本轮共练习 ${total} 道错题，订正 ${resolved} 道，剩余 ${remaining} 道仍需巩固</p>
+        <h2 class="result-verdict ${remaining===0?'pass':'fail'}">${remaining===0 ? '🎉 本轮错题全部掌握！' : '继续加油，还有错题待巩固'}</h2>
+        <p class="result-subtitle">本轮共练习 ${total} 道错题，需连续答对 ${REQUIRED_STREAK} 次才算彻底掌握并移出错题库；本轮掌握 ${resolved} 道，剩余 ${remaining} 道仍需巩固</p>
       </div>
       <div class="result-stats-grid">
         <div class="result-stat"><b style="color:var(--accent)">${total}</b><span>本轮错题数</span></div>
-        <div class="result-stat"><b style="color:var(--green)">${resolved}</b><span>已订正</span></div>
-        <div class="result-stat"><b style="color:var(--red)">${remaining}</b><span>仍错误</span></div>
+        <div class="result-stat"><b style="color:var(--green)">${resolved}</b><span>已掌握</span></div>
+        <div class="result-stat"><b style="color:var(--red)">${remaining}</b><span>待巩固</span></div>
       </div>
       <div class="result-actions">
         <button class="btn primary" id="btnWrongAgain" type="button">${remaining>0?'再练一轮剩余错题':'再练一轮'}</button>
