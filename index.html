@@ -1485,9 +1485,16 @@ kbd{
     return q.options.filter(o => set.has(o.label)).map(o => o.label + '. ' + o.text).join('；');
   }
   function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function isExamCorrect(q, value) {
+    const correct_ans = String(q.answer||'').replace(/\s/g,'');
+    return q.type === 'multi'
+      ? String(value).split('').sort().join('') === correct_ans.split('').sort().join('')
+      : value === correct_ans;
+  }
 
   let examQuestions = [];   // 本次考试的120道题
   let examAnswers = {};     // {idx: selectedStr}
+  let examRevealed = {};    // {idx: true} 该题是否已经显示过对错反馈（选完/提交后立即显示）
   let examCurrent = 0;
   let examSelected = new Set();
   let timerInterval = null;
@@ -1551,6 +1558,7 @@ kbd{
   function startExam() {
     examQuestions = sampleQuestions();
     examAnswers = {};
+    examRevealed = {};
     examCurrent = 0;
     examSelected = new Set();
     secondsLeft = DURATION;
@@ -1591,6 +1599,7 @@ kbd{
   function renderExamQuestion() {
     const q = examQuestions[examCurrent];
     const savedStr = examAnswers[examCurrent];
+    const revealed = !!examRevealed[examCurrent];
     examSelected = new Set(savedStr ? savedStr.split('') : []);
 
     examCard.className = 'exam-question-card';
@@ -1621,10 +1630,18 @@ kbd{
         if (examSelected.has(o.label)) btn.classList.add('selected');
         btn.classList.add('animate-in');
         btn.style.animationDelay = (idx * 55) + 'ms';
+        if (revealed) {
+          btn.disabled = true;
+          const isAnswer = answerLetters(q).includes(o.label);
+          const wasPicked = examSelected.has(o.label);
+          if (isAnswer) btn.classList.add('correct');
+          else if (wasPicked) btn.classList.add('wrong');
+        } else {
+          btn.addEventListener('click', () => examChoose(q, o.label));
+        }
         const letter = document.createElement('span'); letter.className = 'letter'; letter.textContent = o.label;
         const text = document.createElement('span'); text.className = 'option-text'; text.textContent = o.text;
         btn.append(letter, text);
-        btn.addEventListener('click', () => examChoose(q, o.label));
         btn.addEventListener('mouseenter', () => {
           const l = btn.querySelector('.letter');
           l.classList.remove('hover-bounce'); void l.offsetWidth; l.classList.add('hover-bounce');
@@ -1633,6 +1650,25 @@ kbd{
         wrap.appendChild(btn);
       });
       examCard.appendChild(wrap);
+    }
+
+    // 多选题：未揭示时提供"提交本题"按钮
+    if (q.type === 'multi' && !revealed) {
+      const actions = document.createElement('div'); actions.className = 'actions';
+      const clearBtn = document.createElement('button'); clearBtn.type='button'; clearBtn.className='btn';
+      clearBtn.textContent = '清空多选';
+      clearBtn.addEventListener('click', () => { examSelected.clear(); examAnswers[examCurrent]=''; renderExamQuestion(); });
+      const submitBtn = document.createElement('button'); submitBtn.type='button'; submitBtn.className='btn primary';
+      submitBtn.textContent = '确认本题答案';
+      submitBtn.disabled = examSelected.size === 0;
+      submitBtn.addEventListener('click', () => revealAnswer(q));
+      actions.append(clearBtn, submitBtn);
+      examCard.appendChild(actions);
+    }
+
+    // 已揭示：显示对错反馈
+    if (revealed) {
+      renderExamFeedback(q, savedStr);
     }
 
     // 更新进度
@@ -1650,36 +1686,41 @@ kbd{
     renderExamStats();
   }
 
+  function renderExamFeedback(q, savedStr) {
+    const correct = isExamCorrect(q, savedStr || '');
+    const box = document.createElement('div');
+    box.className = 'result show ' + (correct ? 'ok' : 'bad');
+    const header = document.createElement('div'); header.className = 'result-header';
+    header.textContent = correct ? '✓ 回答正确！' : '✗ 回答错误';
+    const detail = document.createElement('div'); detail.className = 'result-detail';
+    const userText = savedStr ? optionText(q, savedStr) : '';
+    const rightText = optionText(q, answerLetters(q));
+    detail.textContent = correct
+      ? `正确答案：${rightText}`
+      : `你的答案：${userText||'未作答'} ｜ 正确答案：${rightText}`;
+    box.append(header, detail);
+    examCard.appendChild(box);
+  }
+
+  // 揭示答案（单选/判断在选择后自动调用；多选在点击"确认本题答案"后调用）
+  function revealAnswer(q) {
+    examAnswers[examCurrent] = Array.from(examSelected).sort().join('');
+    examRevealed[examCurrent] = true;
+    renderExamQuestion();
+  }
+
   function examChoose(q, label) {
     if (q.type === 'multi') {
+      // 多选：仅切换选中状态，不立即揭示，等待用户点击"确认本题答案"
       if (examSelected.has(label)) examSelected.delete(label);
       else examSelected.add(label);
-    } else {
-      examSelected = new Set([label]);
+      examAnswers[examCurrent] = Array.from(examSelected).sort().join('');
+      renderExamQuestion();
+      return;
     }
-    examAnswers[examCurrent] = Array.from(examSelected).sort().join('');
-    // 更新选项UI
-    document.querySelectorAll('#examCard .option').forEach(btn => {
-      const wasSelected = btn.classList.contains('selected');
-      const nowSelected = examSelected.has(btn.dataset.label);
-      btn.classList.toggle('selected', nowSelected);
-      if (!wasSelected && nowSelected) {
-        const l = btn.querySelector('.letter');
-        l.classList.remove('select-bounce'); void l.offsetWidth; l.classList.add('select-bounce');
-        l.addEventListener('animationend', ()=>l.classList.remove('select-bounce'), {once:true});
-      }
-    });
-    // 更新答题卡
-    const dot = document.querySelectorAll('.exam-dot')[examCurrent];
-    if (dot) {
-      if (examAnswers[examCurrent]) dot.classList.add('answered');
-      else dot.classList.remove('answered');
-    }
-    renderExamStats();
-    // 单选/判断自动跳下一题
-    if (q.type !== 'multi' && examCurrent < TOTAL-1) {
-      setTimeout(() => { examCurrent++; renderExamQuestion(); }, 180);
-    }
+    // 单选/判断：选择后立即揭示对错和正确答案
+    examSelected = new Set([label]);
+    revealAnswer(q);
   }
 
   function renderExamNav() {
