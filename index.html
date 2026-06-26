@@ -791,6 +791,25 @@ kbd{
 
 .result-actions{display:flex;gap:10px;margin-top:24px;justify-content:center;flex-wrap:wrap;}
 
+.result-wronglist{margin-top:24px;}
+.result-wronglist h4{
+  font-size:12px;font-weight:700;color:var(--text-3);
+  letter-spacing:.08em;text-transform:uppercase;margin:0 0 12px;
+}
+.wrong-item{
+  border:1px solid var(--red-border);background:var(--red-bg);
+  border-radius:12px;padding:12px 14px;margin-bottom:10px;
+}
+.wrong-item-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.wrong-item-idx{font-size:12px;font-weight:700;color:var(--red);}
+.wrong-item-type{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--panel-solid);color:var(--text-2);}
+.wrong-item-q{font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;line-height:1.5;}
+.wrong-item-row{font-size:13px;line-height:1.6;margin-bottom:2px;}
+.wrong-item-row .lbl{color:var(--text-3);margin-right:4px;}
+.wrong-item-row.user-ans{color:var(--red);}
+.wrong-item-row.correct-ans{color:var(--green);font-weight:600;}
+.wrong-item-row.no-answer{color:var(--text-3);font-style:italic;}
+
 @media(max-width:900px){
   .exam-body{grid-template-columns:1fr;}
   .exam-sidebar{display:none;}
@@ -1459,6 +1478,13 @@ kbd{
   // 与练习模式共用同一份localStorage记录（必须与第一个IIFE中的STORE_KEY规则保持一致）
   const STORE_KEY = 'quiz_security_v2_' + DATA.stats.dedupedQuestionCount;
   function loadJSON(key, fb) { try { return JSON.parse(localStorage.getItem(key)) ?? fb; } catch { return fb; } }
+  function answerLetters(q) { return String(q.answer||'').toUpperCase().split('').filter(Boolean).sort().join(''); }
+  function optionText(q, lettersOrText) {
+    if (q.type === 'fill') return q.answer;
+    const set = new Set(String(lettersOrText).toUpperCase().split(''));
+    return q.options.filter(o => set.has(o.label)).map(o => o.label + '. ' + o.text).join('；');
+  }
+  function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
   let examQuestions = [];   // 本次考试的120道题
   let examAnswers = {};     // {idx: selectedStr}
@@ -1726,7 +1752,7 @@ kbd{
         ? ans.split('').sort().join('') === correct_ans.split('').sort().join('')
         : ans === correct_ans;
       if (is_correct) { correct++; byType[t].c++; }
-      else { wrongList.push({ q, userAns: ans }); }
+      else { wrongList.push({ q, userAns: ans, idx: i }); }
     });
 
     // 判断题固定0.5分/题，其余分数（single+multi）平分剩余总分
@@ -1783,6 +1809,24 @@ kbd{
       </div>`;
     }).join('');
 
+    // 错题详情：逐题列出题目、你的答案与正确答案
+    const wrongItemsHtml = wrongList.map(({ q, userAns, idx }) => {
+      const userText = userAns ? escHtml(optionText(q, userAns)) : '';
+      const correctText = escHtml(optionText(q, q.type==='fill' ? q.answer : answerLetters(q)));
+      const userRow = userAns
+        ? `<div class="wrong-item-row user-ans"><span class="lbl">你的答案：</span>${userText}</div>`
+        : `<div class="wrong-item-row no-answer">未作答</div>`;
+      return `<div class="wrong-item">
+        <div class="wrong-item-top">
+          <span class="wrong-item-idx">第 ${idx+1} 题</span>
+          <span class="wrong-item-type">${TYPE_LABEL[q.type]||q.type}</span>
+        </div>
+        <div class="wrong-item-q">${escHtml(q.question)}</div>
+        ${userRow}
+        <div class="wrong-item-row correct-ans"><span class="lbl">正确答案：</span>${correctText}</div>
+      </div>`;
+    }).join('');
+
     rc.innerHTML = `
       <div class="result-hero">
         <div class="result-score-ring">
@@ -1810,6 +1854,10 @@ kbd{
         ${typeRows}
         <p class="tiny muted" style="margin-top:10px;">📌 本次考试的 ${wrongList.length} 道错题已自动加入错题库，需在「错题练习」中连续答对3次才会移出。</p>
       </div>
+      ${wrongList.length ? `<div class="result-wronglist">
+        <h4>错题详情（共 ${wrongList.length} 道）</h4>
+        ${wrongItemsHtml}
+      </div>` : ''}
       <div class="result-actions">
         <button class="btn primary" id="btnExamRetry" type="button">再来一次</button>
         <button class="btn" id="btnExamWrongPractice" type="button">📕 错题练习</button>
