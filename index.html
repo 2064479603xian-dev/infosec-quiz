@@ -1707,6 +1707,16 @@ kbd{
     examAnswers[examCurrent] = Array.from(examSelected).sort().join('');
     examRevealed[examCurrent] = true;
     renderExamQuestion();
+
+    // 答对：展示反馈片刻后自动跳到下一题（最后一题不自动交卷，留给用户手动点击"完成作答"）
+    const correct = isExamCorrect(q, examAnswers[examCurrent]);
+    if (correct && examCurrent < TOTAL - 1) {
+      const revealedAt = examCurrent;
+      setTimeout(() => {
+        // 防止用户在延迟期间已经手动跳走，导致跳错题目
+        if (examCurrent === revealedAt) { examCurrent++; renderExamQuestion(); }
+      }, 700);
+    }
   }
 
   function examChoose(q, label) {
