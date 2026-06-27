@@ -1310,6 +1310,7 @@ kbd{
       const wasSelected = btn.classList.contains('selected');
       const nowSelected = selected.has(btn.dataset.label);
       btn.classList.toggle('selected', nowSelected);
+      btn.blur(); // 点击后移除焦点轮廓，避免取消选择后仍残留高亮边框
       // 刚被选中时，letter弹跳
       if (!wasSelected && nowSelected) {
         const letter = btn.querySelector('.letter');
@@ -2194,6 +2195,7 @@ kbd{
       // 多选实时刷新选中态，不自动提交
       document.querySelectorAll('#wrongCard .option').forEach(btn => {
         btn.classList.toggle('selected', wSelected.has(btn.dataset.label));
+        btn.blur(); // 点击后立即移除焦点轮廓，避免取消选择后仍残留高亮边框
       });
     } else {
       submit(q, label);
