@@ -1341,12 +1341,23 @@ kbd{
     box.className='result show '+(saved.correct?'ok':'bad');
     const header=document.createElement('div'); header.className='result-header';
     header.textContent=saved.correct?'✓ 回答正确！':'✗ 回答错误';
-    const detail=document.createElement('div'); detail.className='result-detail';
+    box.appendChild(header);
+
     const userAns=q.type==='fill'?saved.selected:optionText(q,saved.selected);
     const rightAns=q.type==='fill'?q.answer:optionText(q,q.answer);
-    if (!saved.correct) detail.textContent=`你的答案：${userAns||'未记录'} ｜ 正确答案：${rightAns}`;
-    else detail.textContent=`正确答案：${rightAns}`;
-    box.append(header,detail);
+
+    if (!saved.correct) {
+      const userRow=document.createElement('div'); userRow.className='result-detail';
+      userRow.textContent=`你的答案：${userAns||'未记录'}`;
+      box.appendChild(userRow);
+    }
+
+    const rightRow=document.createElement('div'); rightRow.className='result-detail correct-fill';
+    const rightLbl=document.createElement('span'); rightLbl.textContent='正确答案：';
+    const rightVal=document.createElement('span'); rightVal.className='correct-fill-text'; rightVal.textContent=rightAns;
+    rightRow.append(rightLbl,rightVal);
+    box.appendChild(rightRow);
+
     card.appendChild(box);
   }
 
@@ -1898,7 +1909,7 @@ kbd{
         </div>
         <div class="wrong-item-q">${escHtml(q.question)}</div>
         ${userRow}
-        <div class="wrong-item-row correct-ans"><span class="lbl">正确答案：</span>${correctText}</div>
+        <div class="wrong-item-row"><span class="lbl">正确答案：</span><span class="correct-fill-text">${correctText}</span></div>
       </div>`;
     }).join('');
 
@@ -2149,13 +2160,23 @@ kbd{
     } else {
       header.textContent = '✗ 回答错误，连续答对次数已清零，需重新连续答对 ' + REQUIRED_STREAK + ' 次';
     }
-    const detail = document.createElement('div'); detail.className = 'result-detail';
+    box.appendChild(header);
+
     const userAns = q.type==='fill' ? saved : optionText(q, saved);
     const rightAns = q.type==='fill' ? q.answer : optionText(q, q.answer);
-    detail.textContent = correct
-      ? `正确答案：${rightAns}`
-      : `你的答案：${userAns||'未记录'} ｜ 正确答案：${rightAns}`;
-    box.append(header, detail);
+
+    if (!correct) {
+      const userRow = document.createElement('div'); userRow.className = 'result-detail';
+      userRow.textContent = `你的答案：${userAns||'未记录'}`;
+      box.appendChild(userRow);
+    }
+
+    const rightRow = document.createElement('div'); rightRow.className = 'result-detail correct-fill';
+    const rightLbl = document.createElement('span'); rightLbl.textContent = '正确答案：';
+    const rightVal = document.createElement('span'); rightVal.className = 'correct-fill-text'; rightVal.textContent = rightAns;
+    rightRow.append(rightLbl, rightVal);
+    box.appendChild(rightRow);
+
     card.appendChild(box);
   }
 
