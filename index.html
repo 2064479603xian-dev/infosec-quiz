@@ -309,13 +309,15 @@ a{color:inherit;text-decoration:none;}
 .option.selected::before{background:var(--accent);width:3px;}
 .option.selected .letter{background:var(--accent);color:#000;transform:scale(1.08);box-shadow:0 4px 12px rgba(6,217,196,.3);border-color:var(--accent);}
 
-.option.correct{border-color:var(--green-border);background:rgba(16,222,100,.08);animation:correctBounce .55s cubic-bezier(.34,1.56,.64,1);}
-.option.correct::before{background:var(--green);width:3px;}
-.option.correct .letter{background:var(--green);color:#000;box-shadow:0 4px 12px rgba(16,222,100,.3);border-color:var(--green);animation:letterBounce .5s .05s cubic-bezier(.34,1.56,.64,1) both;}
+.option.correct{border-color:var(--green);background:var(--green);animation:correctBounce .55s cubic-bezier(.34,1.56,.64,1);}
+.option.correct::before{background:rgba(255,255,255,.4);width:3px;}
+.option.correct .letter{background:rgba(255,255,255,.25);color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.15);border-color:rgba(255,255,255,.5);animation:letterBounce .5s .05s cubic-bezier(.34,1.56,.64,1) both;}
+.option.correct .option-text{color:#fff;font-weight:600;}
 
-.option.wrong{border-color:var(--red-border);background:rgba(255,90,126,.08);animation:wrongShake .5s cubic-bezier(.36,.07,.19,.97);}
-.option.wrong::before{background:var(--red);width:3px;}
-.option.wrong .letter{background:var(--red);color:#fff;box-shadow:0 4px 12px rgba(255,90,126,.3);border-color:var(--red);}
+.option.wrong{border-color:var(--red);background:var(--red);animation:wrongShake .5s cubic-bezier(.36,.07,.19,.97);}
+.option.wrong::before{background:rgba(255,255,255,.4);width:3px;}
+.option.wrong .letter{background:rgba(255,255,255,.25);color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.15);border-color:rgba(255,255,255,.5);}
+.option.wrong .option-text{color:#fff;font-weight:600;}
 
 /* ===== Result ===== */
 .result{
@@ -1526,27 +1528,33 @@ kbd{
       for (let i=a.length-1;i>0;i--) { const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
       return a;
     };
-    // 按比例分配：单选70、多选20、判断30（共120），不足则补齐
+    // 按比例分配：单选60、多选40、判断20（共120），不足则补齐
     let singles = shuffle(byType['single']||[]);
     let multis  = shuffle(byType['multi']||[]);
     let judges  = shuffle(byType['judge']||[]);
     // 期望数量
-    const wantSingle = Math.min(70, singles.length);
-    const wantMulti  = Math.min(20, multis.length);
-    const wantJudge  = Math.min(30, judges.length);
-    let result = [
-      ...singles.slice(0, wantSingle),
-      ...multis.slice(0, wantMulti),
-      ...judges.slice(0, wantJudge)
-    ];
-    // 若不足120，从剩余题里补
-    if (result.length < TOTAL) {
-      const usedIds = new Set(result.map(q=>q.id));
+    const wantSingle = Math.min(60, singles.length);
+    const wantMulti  = Math.min(40, multis.length);
+    const wantJudge  = Math.min(20, judges.length);
+    let singlePart = singles.slice(0, wantSingle);
+    let multiPart  = multis.slice(0, wantMulti);
+    let judgePart  = judges.slice(0, wantJudge);
+
+    // 若不足120，从剩余题里补（按所属题型补到对应分段，保持分段结构）
+    let totalSoFar = singlePart.length + multiPart.length + judgePart.length;
+    if (totalSoFar < TOTAL) {
+      const usedIds = new Set([...singlePart, ...multiPart, ...judgePart].map(q=>q.id));
       const extras = shuffle(pool.filter(q=>!usedIds.has(q.id)));
-      result = result.concat(extras.slice(0, TOTAL - result.length));
+      extras.slice(0, TOTAL - totalSoFar).forEach(q => {
+        if (q.type === 'single') singlePart.push(q);
+        else if (q.type === 'multi') multiPart.push(q);
+        else if (q.type === 'judge') judgePart.push(q);
+        else singlePart.push(q); // 兜底
+      });
     }
-    // 最终随机打乱
-    return shuffle(result).slice(0, TOTAL);
+
+    // 按题型分段排序：单选 → 多选 → 判断（不再整体打乱，保持分段结构）
+    return [...singlePart, ...multiPart, ...judgePart].slice(0, TOTAL);
   }
 
   // 开始考试
